@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GLIMTECH VR | Bebedouro Industrial de Pressão</title>
+
+<!-- Compatibilidade VR (ecrã dividido) em smartphones -->
+<script src="https://cdn.jsdelivr.net/npm/webxr-polyfill@latest/build/webxr-polyfill.js"></script>
+<script>var polyfill = new WebXRPolyfill();</script>
+
+<style>
+  :root { color-scheme: dark; --bg:#101827; --panel:rgba(13,24,42,.96); --line:#475569; --cyan:#67e8f9; --blue:#38bdf8; --amber:#f59e0b; }
+  * { box-sizing:border-box; }
+  body { margin:0; overflow:hidden; background:var(--bg); color:#fff; font-family:Arial,sans-serif; }
+  canvas { display:block; }
+  #painel { position:fixed; z-index:5; top:12px; left:12px; width:min(410px,calc(100vw - 24px)); max-height:calc(100vh - 76px); overflow:auto; padding:15px; border:1px solid var(--line); border-radius:14px; background:var(--panel); backdrop-filter:blur(8px); }
+  h1 { margin:0 0 5px; font-size:22px; color:var(--cyan); }
+  h2 { font-size:16px; margin:12px 0 6px; }
+  p { font-size:13px; line-height:1.45; margin:7px 0; }
+  .sub { color:#cbd5e1; font-size:12px; }
+  .botoes { display:flex; flex-wrap:wrap; gap:5px; margin:8px 0; }
+  button, select { border:0; border-radius:7px; padding:9px 10px; color:#fff; background:#087f9e; font-weight:bold; cursor:pointer; font-size:12px; }
+  button:hover { background:#0e7490; } button:focus-visible, select:focus-visible { outline:2px solid white; outline-offset:2px; }
+  button.sec { background:#334155; } button.sec:hover { background:#475569; }
+  button.gold { background:var(--amber); color:#111827; } button.gold:hover { background:#d97706; }
+  #btnModo { width:100%; margin-top:5px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-top:8px; }
+  .metric { background:#17243a; border:1px solid #334155; border-radius:8px; padding:8px; }
+  .metric small { display:block; color:#94a3b8; font-size:10px; margin-bottom:4px; }
+  .metric strong { font-size:13px; }
+  #estado { min-height:44px; }
+  #status { color:#94a3b8; font-size:11px; }
+  #aviso { position:fixed; z-index:4; left:8px; right:8px; bottom:8px; text-align:center; color:#dbeafe; font-size:10px; pointer-events:none; text-shadow:0 1px 3px #000; }
+  #vr-button { position:fixed; z-index:10; left:50%; bottom:30px; transform:translateX(-50%); }
+  @media(max-width:600px) { #painel { width:min(340px,calc(100vw - 20px)); top:8px; left:8px; padding:11px; max-height:calc(100vh - 70px); } h1{font-size:19px} button{padding:8px;font-size:11px} }
+</style>
+</head>
+<body>
+<div id="painel">
+  <h1>GLIMTECH VR</h1>
+  <p><strong>Bebedouro industrial de coluna</strong></p>
+  <p class="sub">Protótipo didático 3D • circuito hidráulico e frigorífico</p>
+  <h2>Explorar equipamento</h2>
+  <div class="botoes">
+    <button onclick="selecionar('visao')">Visão geral</button>
+    <button onclick="selecionar('carcaca')">Carcaça</button>
+    <button onclick="selecionar('hidraulico')">Sistema hidráulico</button>
+    <button onclick="selecionar('compressor')">Compressor</button>
+    <button onclick="selecionar('condensador')">Condensador</button>
+    <button onclick="selecionar('filtro')">Filtro secador</button>
+    <button onclick="selecionar('capilar')">Tubo capilar</button>
+    <button onclick="selecionar('evaporador')">Evaporador</button>
+    <button class="sec" onclick="alternarFluxo()" id="btnFluxo">Pausar animações</button>
+  </div>
+  <button class="gold" id="btnModo" onclick="alternarModo()">Modo interno: Carcaça transparente</button>
+  <h2 id="titulo">Bebedouro industrial de pressão</h2>
+  <p id="estado">A água entra no reservatório e é resfriada pelo evaporador. O compressor faz circular o refrigerante no circuito frigorífico.</p>
+  <div class="grid">
+    <div class="metric"><small>PRESSÃO REFRIG.</small><strong id="pressao">Conforme operação</strong></div>
+    <div class="metric"><small>TEMPERATURA</small><strong id="temperatura">Conforme operação</strong></div>
+    <div class="metric"><small>ESTADO FLUIDO</small><strong id="estadoFluido">Varia por trecho</strong></div>
+    <div class="metric"><small>ÁGUA</small><strong id="estadoAgua">Resfriamento</strong></div>
+  </div>
+  <p id="status">Carregando ambiente 3D…</p>
+</div>
+<div id="aviso">Modelo ilustrativo para treinamento em Cardboard / Desktop.</div>
+
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
+import { VRButton } from 'https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/webxr/VRButton.js';
+import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/controls/OrbitControls.js';
+
+const $ = id => document.getElementById(id);
+const status = $('status');
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x101827); scene.fog = new THREE.Fog(0x101827, 12, 30);
+const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.1, 100); camera.position.set(6,5.2,8); camera.lookAt(0,1.6,0);
+const renderer = new THREE.WebGLRenderer({antialias:true}); renderer.setSize(innerWidth,innerHeight); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.xr.enabled=true; renderer.outputColorSpace=THREE.SRGBColorSpace; renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.05; document.body.appendChild(renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement); controls.target.set(0,1.6,0); controls.enableDamping=true; controls.dampingFactor=0.06; controls.minDistance=3; controls.maxDistance=15; controls.update();
+scene.add(new THREE.HemisphereLight(0xe5f4ff,0x34415c,2.0)); const key=new THREE.DirectionalLight(0xffffff,2.4); key.position.set(5,9,7); scene.add(key); const fill=new THREE.DirectionalLight(0x7dd3fc,1.0); fill.position.set(-5,4,-5); scene.add(fill);
+
+const mat=(color,metalness=.15,roughness=.4,opacity=1)=>new THREE.MeshStandardMaterial({color,metalness,roughness,transparent:opacity<1,opacity,depthWrite:opacity>=1,side:THREE.DoubleSide});
+const steel=mat(0xb8c5d3,.82,.24), darkSteel=mat(0x526274,.7,.32), black=mat(0x172033,.2,.4), blue=mat(0x168bff,.2,.25), cold=mat(0x79d4ff,.25,.25), red=mat(0xf04f3d,.25,.28), orange=mat(0xffa23c,.2,.3), yellow=mat(0xfacc15,.3,.28), green=mat(0x35d399,.2,.3), waterMat=mat(0x38bdf8,.1,.15,.52), clearMat=mat(0xc7e7f5,.1,.15,.18);
+const selectable=[]; const parts={}; const animated=[]; let selected='visao', mode='transparente', flow=true;
+
+function addMesh(name,geo,pos,material,parent=scene){const m=new THREE.Mesh(geo,material);m.position.set(...pos);m.name=name;m.userData.part=name;parent.add(m);if(parent===scene)selectable.push(m);parts[name]=m;return m;}
+function box(name,size,pos,material,parent=scene){return addMesh(name,new THREE.BoxGeometry(...size),pos,material,parent)}
+function cylinder(name,r1,r2,h,pos,material,segments=24,parent=scene){return addMesh(name,new THREE.CylinderGeometry(r1,r2,h,segments),pos,material,parent)}
+function tube(name,points,radius,color,parent=scene){const curve=new THREE.CatmullRomCurve3(points.map(p=>new THREE.Vector3(...p)));const mesh=addMesh(name,new THREE.TubeGeometry(curve,70,radius,8,false),[0,0,0],mat(color,.25,.25),parent);return curve;}
+function label(text,pos,color='#e2e8f0'){const c=document.createElement('canvas');c.width=512;c.height=100;const ctx=c.getContext('2d');ctx.fillStyle='rgba(15,23,42,.88)';ctx.fillRect(0,0,512,100);ctx.fillStyle=color;ctx.font='bold 30px Arial';ctx.fillText(text,14,62);const tex=new THREE.CanvasTexture(c);const mesh=new THREE.Mesh(new THREE.PlaneGeometry(2.2,.43),new THREE.MeshBasicMaterial({map:tex,transparent:true,side:THREE.DoubleSide,depthWrite:false}));mesh.position.set(...pos);mesh.userData.label=true;scene.add(mesh);return mesh;}
+
+box('piso',[15,.15,12],[0,-.08,0],mat(0x263449,.2,.8));
+const grid=new THREE.GridHelper(14,28,0x36516b,0x23354a);grid.position.y=.01;scene.add(grid);
+
+box('base',[1.35,.18,1.05],[0,.16,0],black);
+const gabinete=box('carcaca',[1.18,3.25,.92],[0,1.88,0],steel); gabinete.userData.originalMat=steel;
+box('painel_frontal',[.88,1.25,.025],[0,2.65,.475],darkSteel);
+box('bandeja',[.76,.07,.34],[0,1.38,.64],steel);
+box('grade_bandeja',[.66,.025,.25],[0,1.43,.63],black);
+cylinder('acionamento',.13,.13,.10,[0,2.05,.58],green,24).rotation.x=Math.PI/2;
+cylinder('bica_base',.09,.09,.22,[0,2.02,.71],steel,20).rotation.x=Math.PI/2;
+const bica=cylinder('bica',.045,.045,.34,[0,1.91,.83],steel,16);bica.rotation.x=Math.PI/2;
+const reservatorio=cylinder('reservatorio',.36,.36,.9,[0,2.75,-.05],mat(0x8bd9f7,.1,.18,.34),32);
+cylinder('tampa_reservatorio',.38,.38,.06,[0,3.22,-.05],steel,32);
+const nivel= cylinder('agua_reservatorio',.33,.33,.54,[0,2.72,-.05],waterMat,32); nivel.scale.y=.72;
+
+const compGroup=new THREE.Group();scene.add(compGroup);
+const compBody=cylinder('compressor',.34,.38,.72,[-.43,.72,-.43],black,32,compGroup);compBody.rotation.z=.04;
+cylinder('topo_compressor',.30,.30,.08,[-.43,1.12,-.43],darkSteel,32,compGroup);
+const compCore=cylinder('miolo_compressor',.17,.17,.45,[-.43,.78,-.43],steel,24,compGroup);compCore.visible=false;
+const crank=cylinder('eixo_compressor',.045,.045,.48,[-.43,.8,-.43],yellow,12,compGroup);crank.visible=false;
+const piston=box('pistao_compressor',[.26,.12,.22],[-.43,.9,-.43],yellow,compGroup);piston.visible=false;
+
+const condGroup=new THREE.Group();scene.add(condGroup);
+box('condensador',[.82,1.1,.12],[-.43,1.95,-.64],black,condGroup);
+const condTubes=[];for(let i=0;i<7;i++){const y=1.48+i*.15;const t=tube('tubo_condensador_'+i,[[-.82,y,-.73],[.02,y,-.73]],.025,0xff755e,condGroup);condTubes.push(t);}
+
+const filtro=cylinder('filtro',.105,.105,.48,[.25,1.45,-.53],yellow,20);filtro.rotation.z=Math.PI/2;
+const capilar=tube('capilar',[[.48,1.45,-.53],[.62,1.43,-.45],[.62,1.35,-.3],[.4,1.32,-.2]],.025,0xffb454);
+const evapPoints=[];for(let i=0;i<5;i++){const y=2.35+i*.16;evapPoints.push([-0.4,y,.12],[.4,y,.12]);}
+const evapCurve=tube('evaporador',[[ -.38,2.35,.22],[.38,2.35,.22],[.38,2.51,.22],[-.38,2.51,.22],[-.38,2.67,.22],[.38,2.67,.22],[.38,2.83,.22],[-.38,2.83,.22],[-.38,2.99,.22],[.38,2.99,.22]],.035,0x42b8ff);
+
+const paths=[
+ tube('linha_descarga',[[-.43,1.12,-.43],[-.43,1.4,-.55],[-.43,2.5,-.72]],.045,0xf04f3d),
+ tube('linha_liquido',[[-.02,1.45,-.64],[.1,1.45,-.57],[.25,1.45,-.53]],.035,0xffa23c),
+ tube('linha_capilar',[ [.48,1.45,-.53],[.62,1.43,-.45],[.62,1.35,-.3],[.4,1.32,-.2],[.38,2.35,.22]],.028,0xffa23c),
+ tube('linha_succao',[[-.38,2.35,.22],[-.65,2.2,.2],[-.72,1.3,-.18],[-.43,1.12,-.43]],.045,0x268bff)
+];
+const inlet=tube('entrada_agua',[[-.53,3.1,-.35],[-.65,3.25,-.6],[-.65,3.25,-.9]],.045,0x22c55e);
+const waterOut=tube('saida_agua',[[0,2.7,.05],[0,2.3,.35],[0,2.02,.75],[0,1.78,.85]],.035,0x38bdf8);
+
+const cutPanel=box('painel_corte',[.025,2.5,.7],[.6,1.9,-.03],clearMat);cutPanel.visible=false;
+label('BEBEDOURO DE PRESSÃO',[0,3.85,0]);label('COMPRESSOR',[-1.1,1.1,-.5],'#fde68a');label('CONDENSADOR',[-1.05,2.75,-.65],'#fca5a5');label('RESERVATÓRIO',[.45,3.35,.05],'#bae6fd');label('EVAPORADOR',[.55,2.9,.35],'#93c5fd');label('FILTRO / CAPILAR',[.8,1.65,-.5],'#fde68a');
+
+const particles=[];function addParticles(pathIndex,count,color,r=.055){for(let i=0;i<count;i++){const m=new THREE.Mesh(new THREE.SphereGeometry(r,10,10),new THREE.MeshStandardMaterial({color,emissive:color,emissiveIntensity:.45}));scene.add(m);particles.push({mesh:m,path:pathIndex,t:i/count});}}
+addParticles(0,7,0xff5b45);addParticles(1,7,0xffb454);addParticles(2,7,0xffb454);addParticles(3,9,0x55c7ff);
+const waterCurve=new THREE.CatmullRomCurve3([new THREE.Vector3(0,2.7,.05),new THREE.Vector3(0,2.3,.35),new THREE.Vector3(0,2.02,.75),new THREE.Vector3(0,1.78,.85)]);for(let i=0;i<6;i++){const m=new THREE.Mesh(new THREE.SphereGeometry(.045,10,10),new THREE.MeshStandardMaterial({color:0x7dd3fc,emissive:0x0284c7,emissiveIntensity:.5}));scene.add(m);particles.push({mesh:m,path:4,t:i/6});}
+
+// ==========================================
+// MÓDULO 3D PARA TEXTOS VR (Substitui o HTML)
+// ==========================================
+const painelCanvas = document.createElement('canvas');
+painelCanvas.width = 1024;
+painelCanvas.height = 512;
+const ctxPainel = painelCanvas.getContext('2d');
+const painelTex = new THREE.CanvasTexture(painelCanvas);
+const painelMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.0, 1.5),
+    new THREE.MeshBasicMaterial({ map: painelTex, transparent: true })
+);
+// Posiciona o painel flutuando à esquerda do equipamento
+painelMesh.position.set(-2.5, 3.0, 1.0); 
+painelMesh.rotation.y = Math.PI / 5;
+painelMesh.visible = false; // Só aparece no VR
+scene.add(painelMesh);
+
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+    let words = text.split(' '), line = '', testLine, metrics, testWidth;
+    for(let n = 0; n < words.length; n++) {
+        testLine = line + words[n] + ' ';
+        metrics = ctx.measureText(testLine);
+        testWidth = metrics.width;
+        if (testWidth > maxWidth && n > 0) {
+            ctx.fillText(line, x, y);
+            line = words[n] + ' ';
+            y += lineHeight;
+        } else { line = testLine; }
+    }
+    ctx.fillText(line, x, y);
+}
+
+function atualizarPainel3D(d) {
+    ctxPainel.clearRect(0,0,1024,512);
+    ctxPainel.fillStyle = 'rgba(13,24,42,0.95)';
+    ctxPainel.fillRect(0,0,1024,512);
+    ctxPainel.strokeStyle = '#38bdf8';
+    ctxPainel.lineWidth = 8;
+    ctxPainel.strokeRect(0,0,1024,512);
+
+    ctxPainel.fillStyle = '#67e8f9';
+    ctxPainel.font = 'bold 44px Arial';
+    ctxPainel.fillText(d.titulo, 40, 70);
+    
+    ctxPainel.fillStyle = '#ffffff';
+    ctxPainel.font = '32px Arial';
+    wrapText(ctxPainel, d.texto, 40, 140, 940, 42);
+    
+    ctxPainel.fillStyle = '#cbd5e1';
+    ctxPainel.font = '24px Arial';
+    ctxPainel.fillText('Pressão: ' + d.p, 40, 360);
+    ctxPainel.fillText('Temperatura: ' + d.t, 40, 410);
+    ctxPainel.fillText('Fluido: ' + d.f, 40, 460);
+    ctxPainel.fillText('Água: ' + d.a, 500, 360);
+    
+    painelTex.needsUpdate = true;
+}
+
+const componentInfo={
+ visao:{titulo:'Visão Geral do Equipamento',texto:'O equipamento recebe água pela entrada hidráulica e a mantém em um reservatório resfriado. O circuito frigorífico remove calor da água e rejeita esse calor ao ambiente pelo condensador.',p:'Varia',t:'Água gelada',f:'Varia',a:'Resfriada'},
+ carcaca:{titulo:'Carcaça e estrutura',texto:'Gabinete externo ilustrativo em aço inox. No modo transparente é possível observar os conjuntos internos.',p:'N/A',t:'Ambiente',f:'N/A',a:'N/A'},
+ hidraulico:{titulo:'Sistema hidráulico',texto:'A água entra pela conexão, abastece o reservatório e sai pela bica quando pressionada.',p:'Rede',t:'Resfriada',f:'Líquida',a:'Entrada → bica'},
+ compressor:{titulo:'Compressor hermético',texto:'Aspira vapor de baixa pressão do evaporador e eleva pressão e temperatura para rejeição de calor.',p:'Baixa/Alta',t:'Aumenta',f:'Vapor',a:'No reservatório'},
+ condensador:{titulo:'Condensador',texto:'O refrigerante quente libera calor para o ambiente e condensa transformando-se em líquido.',p:'Alta',t:'Diminui',f:'Vapor → Líquido',a:'Estática'},
+ filtro:{titulo:'Filtro secador',texto:'Retém partículas e umidade do circuito frigorífico.',p:'Alta',t:'Alta',f:'Líquido',a:'N/A'},
+ capilar:{titulo:'Tubo capilar',texto:'Restringe a passagem provocando queda drástica de pressão para expandir o fluido.',p:'Alta → Baixa',t:'Cai',f:'Mistura',a:'N/A'},
+ evaporador:{titulo:'Evaporador',texto:'O refrigerante de baixa pressão absorve calor da água e evapora, retornando ao compressor.',p:'Baixa',t:'Frio',f:'Mistura → Vapor',a:'Perde calor'}
+};
+
+function updateInfo(name){
+  const d=componentInfo[name]||componentInfo.visao;
+  $('titulo').textContent=d.titulo;
+  $('estado').textContent=d.texto;
+  $('pressao').textContent=d.p;
+  $('temperatura').textContent=d.t;
+  $('estadoFluido').textContent=d.f;
+  $('estadoAgua').textContent=d.a;
+  atualizarPainel3D(d); // Atualiza também o painel em VR
+}
+
+window.selecionar=(name)=>{
+  selected=name; updateInfo(name);
+  const target={visao:[6,5.2,8,0,1.8,0],carcaca:[3.6,4.2,5.8,0,1.9,0],hidraulico:[3.2,4.5,5.5,0,2.4,0],compressor:[2.6,2.3,3.6,-.43,.8,-.43],condensador:[2.8,3.2,3.8,-.4,2,-.65],filtro:[2.2,2.2,2.6,.25,1.45,-.53],capilar:[2.4,2.2,2.8,.4,1.5,-.2],evaporador:[2.8,3.8,4.1,0,2.7,.2]}[name]||[6,5.2,8,0,1.8,0];
+  if(!renderer.xr.isPresenting){camera.position.set(target[0],target[1],target[2]);controls.target.set(target[3],target[4],target[5]);controls.update();}
+};
+window.alternarFluxo=()=>{flow=!flow;$('btnFluxo').textContent=flow?'Pausar animações':'Retomar animações';};
+window.alternarModo=()=>{mode=mode==='transparente'?'corte':'transparente';$('btnModo').textContent='Modo interno: '+(mode==='transparente'?'Carcaça transparente':'Corte técnico');if(mode==='transparente'){gabinete.material=clearMat;reservatorio.material=mat(0x8bd9f7,.1,.18,.34);cutPanel.visible=false;}else{gabinete.material=steel;cutPanel.visible=true;gabinete.scale.x=.84;reservatorio.material=mat(0x8bd9f7,.1,.18,.34);}if(mode==='transparente')gabinete.scale.x=1;};
+function setInternals(){const show=mode==='corte'||mode==='transparente';[compCore,crank,piston].forEach(o=>o.visible=show&&selected==='compressor');condTubes.forEach((_,i)=>{const o=parts['tubo_condensador_'+i];if(o)o.visible=show;});}
+
+// ==========================================
+// MÓDULO DE INTERAÇÃO POR GAZE (MIRA / OLHAR)
+// ==========================================
+const raycaster=new THREE.Raycaster();
+
+// 1. Cria o retículo (a bolinha/mira) colada no centro da visão
+const miraGeo = new THREE.RingGeometry(0.012, 0.024, 32);
+const miraMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, depthTest: false });
+const mira = new THREE.Mesh(miraGeo, miraMat);
+mira.renderOrder = 999; 
+mira.position.set(0, 0, -1); // 1 metro à frente
+camera.add(mira);
+scene.add(camera);
+
+let alvoAtual = null;
+let tempoOlhando = 0;
+const TEMPO_GAZE = 1.5; // Segundos olhando para selecionar a peça
+
+// Botão VR
+const vr=VRButton.createButton(renderer);vr.id='vr-button';document.body.appendChild(vr);
+status.textContent='Ambiente carregado. Compatível com Cardboard (Gaze Pointer).';
+
+const clock=new THREE.Clock();
+renderer.setAnimationLoop(()=>{
+  const dt=Math.min(clock.getDelta(),.05), t=clock.elapsedTime;
+  
+  if(flow){
+    particles.forEach(p=>{
+      p.t=(p.t+dt*(p.path===4?.22:.12))%1;
+      const curve=p.path===4?waterCurve:paths[p.path];
+      p.mesh.position.copy(curve.getPoint(p.t));
+    });
+    piston.position.y=.9+Math.sin(t*5)*.07;
+    crank.rotation.y=t*4;
+    nivel.scale.y=.72+Math.sin(clock.elapsedTime*.7)*.012;
+  }
+  setInternals();
+
+  // Lógica VR Dinâmica (Cardboard / VR One Plus)
+  if(renderer.xr.isPresenting) {
+    mira.visible = true;
+    painelMesh.visible = true; // Mostrar painel 3D
+    
+    // Dispara o raio a partir do centro da tela
+    raycaster.setFromCamera(new THREE.Vector2(0,0), camera);
+    const hits = raycaster.intersectObjects(selectable, true);
+    let achouAlvo = false;
+
+    if (hits.length > 0) {
+      let obj = hits[0].object;
+      while(obj && !obj.userData.part) obj = obj.parent;
+      
+      if (obj && obj.userData.part) {
+        achouAlvo = true;
+        if (alvoAtual === obj) {
+          tempoOlhando += dt;
+          const progresso = Math.min(tempoOlhando / TEMPO_GAZE, 1);
+          
+          // Anima a mira para dar feedback visual de carregamento
+          mira.scale.setScalar(1 - (progresso * 0.4)); 
+          mira.material.color.setHSL(0.3, 1, 0.5 + (progresso * 0.5)); // Fica verde
+          
+          if (tempoOlhando >= TEMPO_GAZE) {
+            selecionar(obj.userData.part);
+            tempoOlhando = 0;
+            alvoAtual = null; // Evita disparos repetidos
+          }
+        } else {
+          alvoAtual = obj;
+          tempoOlhando = 0;
+          mira.scale.setScalar(1);
+          mira.material.color.setHex(0xffffff);
+        }
+      }
+    }
+    
+    if (!achouAlvo) {
+      alvoAtual = null;
+      tempoOlhando = 0;
+      mira.scale.setScalar(1);
+      mira.material.color.setHex(0xffffff);
+    }
+  } else {
+    mira.visible = false;
+    painelMesh.visible = false; // Esconde no modo janela
+    controls.update();
+  }
+
+  renderer.render(scene,camera);
+});
+
+window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+selecionar('visao');
+</script>
+</body>
+</html>
